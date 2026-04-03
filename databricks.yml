@@ -1,0 +1,99 @@
+# ============================================================
+# Databricks Asset Bundle — SmartRetail-Corp
+# Single workspace, 3 catalogs (dev / qa / prod)
+# Serverless compute
+# ============================================================
+
+bundle:
+  name: smartretail-lakehouse
+
+variables:
+  catalog:
+    description: "Unity Catalog name for this environment"
+    default: dev
+
+workspace:
+  host: https://dbc-818d57f7-398f.cloud.databricks.com
+
+resources:
+  jobs:
+
+    # ---- Full Pipeline: Bronze → Silver → Gold ----
+    smartretail_pipeline:
+      name: "SmartRetail_Pipeline_${var.catalog}"
+
+      tasks:
+        - task_key: bronze_ingestion
+          notebook_task:
+            notebook_path: ./01_bronze/ingest_raw_to_bronze.ipynb
+            base_parameters:
+              catalog: "${var.catalog}"
+
+        - task_key: silver_transformation
+          depends_on:
+            - task_key: bronze_ingestion
+          notebook_task:
+            notebook_path: ./02_silver/transform_to_silver.ipynb
+            base_parameters:
+              catalog: "${var.catalog}"
+
+        - task_key: gold_aggregation
+          depends_on:
+            - task_key: silver_transformation
+          notebook_task:
+            notebook_path: ./03_gold/build_gold_layer.ipynb
+            base_parameters:
+              catalog: "${var.catalog}"
+
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: "UTC"
+        pause_status: PAUSED
+
+      email_notifications:
+        on_failure:
+          - shahilshaik1999@gmail.com
+
+    # ---- Delta Optimization (Weekly Saturday) ----
+    delta_optimization:
+      name: "SmartRetail_DeltaOptimize_${var.catalog}"
+
+      tasks:
+        - task_key: optimize_tables
+          notebook_task:
+            notebook_path: ./utils/delta_lake_optimizations.ipynb
+            base_parameters:
+              catalog: "${var.catalog}"
+
+      schedule:
+        quartz_cron_expression: "0 0 4 ? * SAT"
+        timezone_id: "UTC"
+        pause_status: PAUSED
+
+# ============================================================
+# TARGETS — Same workspace, different catalogs
+# ============================================================
+targets:
+
+  dev:
+    default: true
+    variables:
+      catalog: dev
+
+  qa:
+    variables:
+      catalog: qa
+    resources:
+      jobs:
+        smartretail_pipeline:
+          schedule:
+            pause_status: PAUSED
+
+  prod:
+    variables:
+      catalog: prod
+    resources:
+      jobs:
+        smartretail_pipeline:
+          schedule:
+            pause_status: UNPAUSED
