@@ -1,0 +1,71 @@
+# ============================================================
+# CD Pipeline — Promote QA → Prod
+# QA: auto on push to main
+# Prod: manual via release tag (v1.0.0)
+# ============================================================
+
+name: CD - Deploy & Promote
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+
+env:
+  DATABRICKS_HOST: https://dbc-818d57f7-398f.cloud.databricks.com
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+jobs:
+
+  deploy-qa:
+    name: "Deploy to QA"
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy to QA
+        run: |
+          echo "Deploying to QA catalog..."
+          databricks bundle deploy --target qa
+          echo "QA deployment complete"
+
+      - name: Smoke Test on QA
+        run: |
+          echo "Running smoke test on QA..."
+          databricks bundle run smartretail_pipeline --target qa
+          echo "QA smoke test passed"
+
+  deploy-prod:
+    name: "Deploy to PROD"
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy to Production
+        run: |
+          echo "Deploying to PROD catalog..."
+          databricks bundle deploy --target prod
+          echo "Production deployment complete"
+
+      - name: Canary Test on Prod
+        run: |
+          echo "Running canary on PROD..."
+          databricks bundle run smartretail_pipeline --target prod
+          echo "Production canary passed"
+
+      - name: Notify
+        if: success()
+        run: |
+          echo "Production deployment successful!"
+          echo "Tag: ${{ github.ref_name }}"
