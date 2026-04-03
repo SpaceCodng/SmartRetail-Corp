@@ -1,0 +1,69 @@
+# ============================================================
+# CI Pipeline — Validate & Deploy to Dev
+# ============================================================
+
+name: CI - Validate & Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  DATABRICKS_HOST: https://dbc-818d57f7-398f.cloud.databricks.com
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+jobs:
+
+  validate:
+    name: "Validate Code & Bundle"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Lint Python files
+        run: |
+          pip install ruff
+          echo "Linting Python files..."
+          ruff check . --select E,W,F --ignore E501 --exit-zero
+          echo "Lint complete"
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate Bundle
+        run: |
+          echo "Validating Databricks Asset Bundle..."
+          databricks bundle validate --target dev
+          echo "Bundle validation passed"
+
+  deploy-dev:
+    name: "Deploy to Dev"
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy to Dev
+        run: |
+          echo "Deploying to DEV catalog..."
+          databricks bundle deploy --target dev
+          echo "Dev deployment complete"
+
+      - name: Run Pipeline on Dev
+        run: |
+          echo "Running pipeline on DEV..."
+          databricks bundle run smartretail_pipeline --target dev
+          echo "Dev pipeline complete"
